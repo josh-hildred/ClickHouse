@@ -550,6 +550,8 @@ void BackupImpl::checkBackupDoesntExist() const
     }
 }
 
+bool BackupImpl::supportsWritingInMultipleThreads() const { return !use_archive || archive_writer->supportsWritingInMultipleThreads(); }
+
 void BackupImpl::createLockFile()
 {
     /// Internal backup must not create the lock file (it should be created by the initiator).

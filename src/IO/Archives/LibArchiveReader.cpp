@@ -129,7 +129,7 @@ public:
             if (!filter || filter(name))
                 files.push_back(std::move(name));
 
-            error = readNextHeader(archive, &entry);
+            error = readNextHeader(current_archive, &entry);
         }
 
         checkError(error);

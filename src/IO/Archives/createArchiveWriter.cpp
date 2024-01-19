@@ -1,6 +1,7 @@
 #include <IO/Archives/LibArchiveWriter.h>
 #include <IO/Archives/TarArchiveWriter.h>
 #include <IO/Archives/ZipArchiveWriter.h>
+#include <IO/Archives/ParallelTarArchiveWriter.h>
 #include <IO/Archives/createArchiveWriter.h>
 #include <IO/WriteBuffer.h>
 #include <Common/Exception.h>
@@ -40,6 +41,14 @@ createArchiveWriter(const String & path_to_archive, [[maybe_unused]] std::unique
     {
 #if USE_LIBARCHIVE
         return std::make_shared<TarArchiveWriter>(path_to_archive, std::move(archive_write_buffer));
+#else
+        throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "libarchive library is disabled");
+#endif
+    }
+    else if (path_to_archive.ends_with(".ptar"))
+    {
+#if USE_LIBARCHIVE
+        return std::make_shared<ParallelTarArchiveWriter>(path_to_archive, std::move(archive_write_buffer));
 #else
         throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "libarchive library is disabled");
 #endif

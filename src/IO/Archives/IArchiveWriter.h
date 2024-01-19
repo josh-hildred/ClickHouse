@@ -34,6 +34,7 @@ public:
 
     static constexpr const int kDefaultCompressionLevel = -1;
 
+    virtual bool supportsWritingInMultipleThreads() {return false;}
     /// Sets compression method and level.
     /// Changing them will affect next file in the archive.
     virtual void setCompression(const String & /* compression_method */, int /* compression_level */ = kDefaultCompressionLevel) {}
