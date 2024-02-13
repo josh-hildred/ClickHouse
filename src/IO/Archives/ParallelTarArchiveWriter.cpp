@@ -200,7 +200,7 @@ ParallelTarArchiveWriter::~ParallelTarArchiveWriter()
         archive_write_free(a);
 }
 
-std::unique_ptr<WriteBufferFromFileBase> ParallelTarArchiveWriter::writeFile(const String & filename, const size_t & size)
+std::unique_ptr<WriteBufferFromFileBase> ParallelTarArchiveWriter::writeFile(const String & filename, size_t size)
 {
     return std::make_unique<WriteBufferFromArchive>(std::static_pointer_cast<ParallelTarArchiveWriter>(shared_from_this()), filename, size);
 }
