@@ -29,6 +29,7 @@ namespace ErrorCodes
     M(Bool, allow_s3_native_copy) \
     M(Bool, use_same_s3_credentials_for_base_backup) \
     M(Bool, read_from_filesystem_cache) \
+    M(Bool, s3_parallel_tar) \
     M(UInt64, shard_num) \
     M(UInt64, replica_num) \
     M(Bool, check_parts) \

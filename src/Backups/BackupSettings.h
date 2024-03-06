@@ -78,6 +78,8 @@ struct BackupSettings
     /// UUID of the backup. If it's not set it will be generated randomly.
     std::optional<UUID> backup_uuid;
 
+    bool s3_parallel_tar = false;
+
     static BackupSettings fromBackupQuery(const ASTBackupQuery & query);
     void copySettingsToQuery(ASTBackupQuery & query) const;
 
