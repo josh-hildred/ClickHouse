@@ -1,28 +1,30 @@
-#include <Backups/BackupImpl.h>
 #include <Backups/BackupFactory.h>
 #include <Backups/BackupFileInfo.h>
 #include <Backups/BackupIO.h>
+#include <Backups/BackupImpl.h>
 #include <Backups/IBackupEntry.h>
-#include <Common/ProfileEvents.h>
-#include <Common/StringUtils/StringUtils.h>
-#include <base/hex.h>
-#include <Common/logger_useful.h>
-#include <Common/quoteString.h>
-#include <Common/XMLUtils.h>
-#include <Interpreters/Context.h>
+#include <Backups/BackupIO_S3GlacierMultipart.h>
 #include <IO/Archives/IArchiveReader.h>
 #include <IO/Archives/IArchiveWriter.h>
 #include <IO/Archives/createArchiveReader.h>
 #include <IO/Archives/createArchiveWriter.h>
+#include <IO/Archives/ParallelArchiveWriter.h>
 #include <IO/ConcatSeekableReadBuffer.h>
-#include <IO/ReadHelpers.h>
+#include <IO/Operators.h>
 #include <IO/ReadBufferFromFileBase.h>
+#include <IO/ReadHelpers.h>
 #include <IO/WriteBufferFromFileBase.h>
 #include <IO/WriteHelpers.h>
-#include <IO/Operators.h>
 #include <IO/copyData.h>
-#include <Poco/Util/XMLConfiguration.h>
+#include <Interpreters/Context.h>
+#include <base/hex.h>
 #include <Poco/DOM/DOMParser.h>
+#include <Poco/Util/XMLConfiguration.h>
+#include <Common/ProfileEvents.h>
+#include <Common/StringUtils/StringUtils.h>
+#include <Common/XMLUtils.h>
+#include <Common/logger_useful.h>
+#include <Common/quoteString.h>
 
 #include <ranges>
 
@@ -219,12 +221,18 @@ void BackupImpl::openArchive()
         if (!reader->fileExists(archive_name))
             throw Exception(ErrorCodes::BACKUP_NOT_FOUND, "Backup {} not found", backup_name_for_logging);
         size_t archive_size = reader->getFileSize(archive_name);
-        archive_reader = createArchiveReader(archive_name, [my_reader = reader, archive_name]{ return my_reader->readFile(archive_name); }, archive_size);
+        archive_reader = createArchiveReader(
+            archive_name, [my_reader = reader, archive_name] { return my_reader->readFile(archive_name); }, archive_size);
         archive_reader->setPassword(archive_params.password);
     }
     else
     {
-        archive_writer = createArchiveWriter(archive_name, writer->writeFile(archive_name));
+        if (archive_params.s3_parallel_tar)
+            archive_writer = std::make_shared<ParallelArchiveWriter>(
+                archive_name,
+                [&](size_t size) { return dynamic_cast <BackupWriterS3GlacierMultipart&>(*writer).writeData(size);});
+        else
+            archive_writer = createArchiveWriter(archive_name, writer->writeFile(archive_name));
         archive_writer->setPassword(archive_params.password);
         archive_writer->setCompression(archive_params.compression_method, archive_params.compression_level);
     }
@@ -550,7 +558,10 @@ void BackupImpl::checkBackupDoesntExist() const
     }
 }
 
-bool BackupImpl::supportsWritingInMultipleThreads() const { return !use_archive || archive_writer->supportsWritingInMultipleThreads(); }
+bool BackupImpl::supportsWritingInMultipleThreads() const
+{
+    return !use_archive || archive_writer->supportsWritingInMultipleThreads();
+}
 
 void BackupImpl::createLockFile()
 {

@@ -32,6 +32,7 @@ public:
         String compression_method;
         int compression_level = 0;
         size_t max_volume_size = 0;
+        bool s3_parallel_tar = false;
     };
 
     BackupImpl(

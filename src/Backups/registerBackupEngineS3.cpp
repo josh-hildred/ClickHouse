@@ -5,7 +5,7 @@
 
 #if USE_AWS_S3
 #include <Backups/BackupIO_S3.h>
-#include <Backups/BackupIO_S3ParallelTar.h>
+#include <Backups/BackupIO_S3GlacierMultipart.h>
 #include <Backups/BackupImpl.h>
 #include <IO/Archives/hasRegisteredArchiveFileExtension.h>
 #include <Interpreters/Context.h>
@@ -98,6 +98,7 @@ void registerBackupEngineS3(BackupFactory & factory)
             archive_params.compression_method = params.compression_method;
             archive_params.compression_level = params.compression_level;
             archive_params.password = params.password;
+            archive_params.s3_parallel_tar = params.s3_parallel_tar;
         }
         else
         {
@@ -127,14 +128,15 @@ void registerBackupEngineS3(BackupFactory & factory)
         {
             if(params.s3_parallel_tar)
             {
-                auto writer = std::make_shared<BackupWriterS3ParallelTar>(S3::URI{s3_uri},
+                auto writer = std::make_shared<BackupWriterS3GlacierMultipart>(S3::URI{s3_uri},
                                                         access_key_id,
                                                         secret_access_key,
                                                         params.allow_s3_native_copy,
                                                         params.s3_storage_class,
                                                         params.read_settings,
                                                         params.write_settings,
-                                                        params.context);
+                                                        params.context, 
+                                                        archive_params.archive_name);
                 return std::make_unique<BackupImpl>(
                     params.backup_info,
                     archive_params,
