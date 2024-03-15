@@ -4,6 +4,8 @@
 
 #if USE_AWS_S3
 #    include <Backups/BackupIO_S3.h>
+#    include <IO/S3/S3MultipartWriter.h>
+
 
 namespace DB
 {
@@ -25,12 +27,13 @@ public:
     ~BackupWriterS3GlacierMultipart() override;
     
     std::unique_ptr<WriteBuffer> writeData(size_t size);
+    void finalize();
     class ParallelWriteBufferToWriteBuffer;
 
 private:
     String archive_name;
     std::mutex wb_mutex;
-    std::shared_ptr<WriteBuffer> archive_write_buffer;
+    std::shared_ptr<S3MultipartWriter> archive_write_buffer;
 };
 
 }

@@ -22,7 +22,10 @@ public:
     [[noreturn]] explicit ParallelArchiveWriter(const String & path_to_archive_);
 
     /// Constructs an archive that will be written as a file in the local filesystem.
-    explicit ParallelArchiveWriter(const String & path_to_archive_, const std::function<std::unique_ptr<WriteBuffer>(size_t)> & write_function_);
+    explicit ParallelArchiveWriter(
+        const String & path_to_archive_,
+        const std::function<std::unique_ptr<WriteBuffer>(size_t)> & write_function_,
+        const std::function<void()> & finalize_callback_);
 
     /// Call finalize() before destructing IArchiveWriter.
     ~ParallelArchiveWriter() override;
@@ -39,7 +42,7 @@ public:
     std::unique_ptr<WriteBufferFromFileBase> writeFile(const String & filename, size_t size) override;
 
     //todo fix this
-    bool isWritingFile() const override {return false;}
+    bool isWritingFile() const override { return false; }
 
 
     /// Finalizes writing of the archive. This function must be always called at the end of writing.
@@ -60,6 +63,7 @@ public:
 
 private:
     const std::function<std::unique_ptr<WriteBuffer>(size_t)> write_function;
+    const std::function<void()> finalize_callback;
     String path_to_archive;
 };
 

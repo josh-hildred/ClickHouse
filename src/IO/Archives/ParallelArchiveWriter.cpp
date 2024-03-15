@@ -2,15 +2,15 @@
 
 #if USE_LIBARCHIVE
 
-#include <filesystem>
-#include <IO/WriteBufferFromFileBase.h>
-#include <Common/quoteString.h>
-#include <Common/scope_guard_safe.h>
+#    include <filesystem>
+#    include <IO/WriteBufferFromFileBase.h>
+#    include <Common/quoteString.h>
+#    include <Common/scope_guard_safe.h>
 
-#include <mutex>
+#    include <mutex>
 
 
-// this implemation follows the ZipArchiveWriter implemation as closely as possible.  
+// this implemation follows the ZipArchiveWriter implemation as closely as possible.
 
 namespace DB
 {
@@ -25,12 +25,12 @@ extern const int NOT_IMPLEMENTED;
 
 namespace
 {
-    size_t calculate_size(size_t size)
-    {   
-        /// tar block size is 512. 1 block for header + number of bytes / size blocks + 1 block for rest  
-        size_t res = 512 * ((size / 512) + 2);
-        return res; 
-    }
+size_t calculate_size(size_t size)
+{
+    /// tar block size is 512. 1 block for header + number of bytes / size blocks + 1 block for rest
+    size_t res = 512 * ((size / 512) + 2);
+    return res;
+}
 }
 
 //todo cleanup + proper error handling
@@ -38,10 +38,12 @@ class ParallelArchiveWriter::ArchiveWriteBuffer : public WriteBufferFromFileBase
 {
 public:
     ArchiveWriteBuffer(std::shared_ptr<IArchiveWriter> archive_, std::unique_ptr<WriteBuffer> archive_write_buffer_)
-        : WriteBufferFromFileBase(DBMS_DEFAULT_BUFFER_SIZE, nullptr, 0), archive(archive_), archive_write_buffer(std::move(archive_write_buffer_))
+        : WriteBufferFromFileBase(DBMS_DEFAULT_BUFFER_SIZE, nullptr, 0)
+        , archive(archive_)
+        , archive_write_buffer(std::move(archive_write_buffer_))
     {
     }
-    
+
     void finalizeImpl() override
     {
         next();
@@ -53,19 +55,19 @@ public:
     std::string getFileName() const override { return filename; }
 
 private:
-    void nextImpl() override
-    {
-        archive_write_buffer->write(working_buffer.begin(), offset());
-    }
+    void nextImpl() override { archive_write_buffer->write(working_buffer.begin(), offset()); }
 
     String filename;
     std::shared_ptr<IArchiveWriter> archive;
     std::unique_ptr<WriteBuffer> archive_write_buffer;
 };
 
-ParallelArchiveWriter::ParallelArchiveWriter(const String & path_to_archive_, const std::function<std::unique_ptr<WriteBuffer>(size_t)> & write_function_)
-    : write_function(write_function_), path_to_archive(path_to_archive_)
-{   
+ParallelArchiveWriter::ParallelArchiveWriter(
+    const String & path_to_archive_,
+    const std::function<std::unique_ptr<WriteBuffer>(size_t)> & write_function_,
+    const std::function<void()> & finalize_callback_)
+    : write_function(write_function_), finalize_callback(finalize_callback_), path_to_archive(path_to_archive_)
+{
 }
 
 
@@ -75,32 +77,29 @@ ParallelArchiveWriter::~ParallelArchiveWriter()
 
 std::unique_ptr<WriteBufferFromFileBase> ParallelArchiveWriter::writeFile(const String & filename, size_t size)
 {
-        String tmp_filename = filename + ".tar";
-        auto archive = std::make_shared<TarArchiveWriter>(tmp_filename, write_function(calculate_size(size)));
-        return std::make_unique<ArchiveWriteBuffer>(archive, archive->writeFile(filename, size));
+    String tmp_filename = filename + ".tar";
+    auto archive = std::make_shared<TarArchiveWriter>(tmp_filename, write_function(calculate_size(size)));
+    return std::make_unique<ArchiveWriteBuffer>(archive, archive->writeFile(filename, size));
 }
 
 std::unique_ptr<WriteBufferFromFileBase> ParallelArchiveWriter::writeFile(const String & filename)
 {
-        String tmp_filename = filename + ".tar";
-        auto archive = std::make_shared<TarArchiveWriter>(tmp_filename, write_function(0));
-        return std::make_unique<ArchiveWriteBuffer>(archive, archive->writeFile(filename, 0));
-
+    String tmp_filename = filename + ".tar";
+    auto archive = std::make_shared<TarArchiveWriter>(tmp_filename, write_function(calculate_size(0)));
+    return std::make_unique<ArchiveWriteBuffer>(archive, archive->writeFile(filename, 0));
 }
-
 
 
 void ParallelArchiveWriter::finalize()
 {
+    finalize_callback();
 }
 
 void ParallelArchiveWriter::setCompression(const String & compression_method_, int compression_level)
 {
     // throw an error unless setCompression is passed the defualt value
     if (compression_method_.size() == 0 and compression_level == -1)
-    {
-            return;
-    }
+        return;
     throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Tar archives are currenly supported without compression");
 }
 

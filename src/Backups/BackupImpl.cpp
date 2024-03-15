@@ -1,14 +1,14 @@
 #include <Backups/BackupFactory.h>
 #include <Backups/BackupFileInfo.h>
 #include <Backups/BackupIO.h>
+#include <Backups/BackupIO_S3GlacierMultipart.h>
 #include <Backups/BackupImpl.h>
 #include <Backups/IBackupEntry.h>
-#include <Backups/BackupIO_S3GlacierMultipart.h>
 #include <IO/Archives/IArchiveReader.h>
 #include <IO/Archives/IArchiveWriter.h>
+#include <IO/Archives/ParallelArchiveWriter.h>
 #include <IO/Archives/createArchiveReader.h>
 #include <IO/Archives/createArchiveWriter.h>
-#include <IO/Archives/ParallelArchiveWriter.h>
 #include <IO/ConcatSeekableReadBuffer.h>
 #include <IO/Operators.h>
 #include <IO/ReadBufferFromFileBase.h>
@@ -31,61 +31,61 @@
 
 namespace ProfileEvents
 {
-    extern const Event BackupsOpenedForRead;
-    extern const Event BackupsOpenedForWrite;
-    extern const Event BackupReadMetadataMicroseconds;
-    extern const Event BackupWriteMetadataMicroseconds;
+extern const Event BackupsOpenedForRead;
+extern const Event BackupsOpenedForWrite;
+extern const Event BackupReadMetadataMicroseconds;
+extern const Event BackupWriteMetadataMicroseconds;
 }
 
 namespace DB
 {
 namespace ErrorCodes
 {
-    extern const int BACKUP_NOT_FOUND;
-    extern const int BACKUP_ALREADY_EXISTS;
-    extern const int BACKUP_VERSION_NOT_SUPPORTED;
-    extern const int BACKUP_DAMAGED;
-    extern const int NO_BASE_BACKUP;
-    extern const int WRONG_BASE_BACKUP;
-    extern const int BACKUP_ENTRY_NOT_FOUND;
-    extern const int BACKUP_IS_EMPTY;
-    extern const int CANNOT_RESTORE_TO_NONENCRYPTED_DISK;
-    extern const int FAILED_TO_SYNC_BACKUP_OR_RESTORE;
-    extern const int LOGICAL_ERROR;
+extern const int BACKUP_NOT_FOUND;
+extern const int BACKUP_ALREADY_EXISTS;
+extern const int BACKUP_VERSION_NOT_SUPPORTED;
+extern const int BACKUP_DAMAGED;
+extern const int NO_BASE_BACKUP;
+extern const int WRONG_BASE_BACKUP;
+extern const int BACKUP_ENTRY_NOT_FOUND;
+extern const int BACKUP_IS_EMPTY;
+extern const int CANNOT_RESTORE_TO_NONENCRYPTED_DISK;
+extern const int FAILED_TO_SYNC_BACKUP_OR_RESTORE;
+extern const int LOGICAL_ERROR;
 }
 
 namespace
 {
-    const int INITIAL_BACKUP_VERSION = 1;
-    const int CURRENT_BACKUP_VERSION = 1;
+const int INITIAL_BACKUP_VERSION = 1;
+const int CURRENT_BACKUP_VERSION = 1;
 
-    using SizeAndChecksum = IBackup::SizeAndChecksum;
+using SizeAndChecksum = IBackup::SizeAndChecksum;
 
-    String hexChecksum(UInt128 checksum)
-    {
-        return getHexUIntLowercase(checksum);
-    }
+String hexChecksum(UInt128 checksum)
+{
+    return getHexUIntLowercase(checksum);
+}
 
-    UInt128 unhexChecksum(const String & checksum)
-    {
-        constexpr size_t num_chars_in_checksum = sizeof(UInt128) * 2;
-        if (checksum.size() != num_chars_in_checksum)
-            throw Exception(ErrorCodes::BACKUP_DAMAGED, "Unexpected size of checksum: {}, must be {}", checksum.size(), num_chars_in_checksum);
-        return unhexUInt<UInt128>(checksum.data());
-    }
+UInt128 unhexChecksum(const String & checksum)
+{
+    constexpr size_t num_chars_in_checksum = sizeof(UInt128) * 2;
+    if (checksum.size() != num_chars_in_checksum)
+        throw Exception(ErrorCodes::BACKUP_DAMAGED, "Unexpected size of checksum: {}, must be {}", checksum.size(), num_chars_in_checksum);
+    return unhexUInt<UInt128>(checksum.data());
+}
 
-    String formatSizeAndChecksum(const SizeAndChecksum & size_and_checksum)
-    {
-        return hexChecksum(size_and_checksum.second) + std::to_string(size_and_checksum.first);
-    }
+String formatSizeAndChecksum(const SizeAndChecksum & size_and_checksum)
+{
+    return hexChecksum(size_and_checksum.second) + std::to_string(size_and_checksum.first);
+}
 
-    /// We store entries' file names in the backup without leading slashes.
-    String removeLeadingSlash(const String & path)
-    {
-        if (path.starts_with('/'))
-            return path.substr(1);
-        return path;
-    }
+/// We store entries' file names in the backup without leading slashes.
+String removeLeadingSlash(const String & path)
+{
+    if (path.starts_with('/'))
+        return path.substr(1);
+    return path;
+}
 }
 
 
@@ -146,7 +146,8 @@ BackupImpl::BackupImpl(
 
 BackupImpl::~BackupImpl()
 {
-    if ((open_mode == OpenMode::WRITE) && !is_internal_backup && !writing_finalized && !std::uncaught_exceptions() && !std::current_exception())
+    if ((open_mode == OpenMode::WRITE) && !is_internal_backup && !writing_finalized && !std::uncaught_exceptions()
+        && !std::current_exception())
     {
         /// It is suspicious to destroy BackupImpl without finalization while writing a backup when there is no exception.
         LOG_ERROR(log, "BackupImpl is not finalized when destructor is called. Stack trace: {}", StackTrace().toString());
@@ -229,8 +230,8 @@ void BackupImpl::openArchive()
     {
         if (archive_params.s3_parallel_tar)
             archive_writer = std::make_shared<ParallelArchiveWriter>(
-                archive_name,
-                [&](size_t size) { return dynamic_cast <BackupWriterS3GlacierMultipart&>(*writer).writeData(size);});
+                archive_name, [&](size_t size) { return dynamic_cast<BackupWriterS3GlacierMultipart &>(*writer).writeData(size); }
+                , [&]() { dynamic_cast<BackupWriterS3GlacierMultipart &>(*writer).finalize();});
         else
             archive_writer = createArchiveWriter(archive_name, writer->writeFile(archive_name));
         archive_writer->setPassword(archive_params.password);
@@ -360,10 +361,8 @@ void BackupImpl::writeBackupMetadata()
     {
         bool base_backup_in_use = false;
         for (const auto & info : all_file_infos)
-        {
             if (info.base_size)
                 base_backup_in_use = true;
-        }
 
         if (base_backup_in_use)
         {
@@ -404,7 +403,8 @@ void BackupImpl::writeBackupMetadata()
         }
 
         total_size += info.size;
-        bool has_entry = !deduplicate_files || (info.size && (info.size != info.base_size) && (info.data_file_name.empty() || (info.data_file_name == info.file_name)));
+        bool has_entry = !deduplicate_files
+            || (info.size && (info.size != info.base_size) && (info.data_file_name.empty() || (info.data_file_name == info.file_name)));
         if (has_entry)
         {
             ++num_entries;
@@ -509,9 +509,7 @@ void BackupImpl::readBackupMetadata()
                 }
 
                 if (info.size > info.base_size)
-                {
                     info.data_file_name = getString(file_config, "data_file", info.file_name);
-                }
                 info.encrypted_by_disk = getBool(file_config, "encrypted_by_disk", false);
             }
 
@@ -521,7 +519,8 @@ void BackupImpl::readBackupMetadata()
 
             ++num_files;
             total_size += info.size;
-            bool has_entry = !deduplicate_files || (info.size && (info.size != info.base_size) && (info.data_file_name.empty() || (info.data_file_name == info.file_name)));
+            bool has_entry = !deduplicate_files
+                || (info.size && (info.size != info.base_size) && (info.data_file_name.empty() || (info.data_file_name == info.file_name)));
             if (has_entry)
             {
                 ++num_entries;
@@ -770,7 +769,8 @@ std::unique_ptr<SeekableReadBuffer> BackupImpl::readFileImpl(const SizeAndChecks
             throw Exception(
                 ErrorCodes::NO_BASE_BACKUP,
                 "Backup {}: Entry {} is marked to be read from a base backup, but there is no base backup specified",
-                backup_name_for_logging, formatSizeAndChecksum(size_and_checksum));
+                backup_name_for_logging,
+                formatSizeAndChecksum(size_and_checksum));
         }
 
         if (!base->fileExists(std::pair(info.base_size, info.base_checksum)))
@@ -778,7 +778,8 @@ std::unique_ptr<SeekableReadBuffer> BackupImpl::readFileImpl(const SizeAndChecks
             throw Exception(
                 ErrorCodes::WRONG_BASE_BACKUP,
                 "Backup {}: Entry {} is marked to be read from a base backup, but doesn't exist there",
-                backup_name_for_logging, formatSizeAndChecksum(size_and_checksum));
+                backup_name_for_logging,
+                formatSizeAndChecksum(size_and_checksum));
         }
 
         base_read_buffer = base->readFile(std::pair{info.base_size, info.base_checksum});
@@ -810,14 +811,14 @@ std::unique_ptr<SeekableReadBuffer> BackupImpl::readFileImpl(const SizeAndChecks
     }
 }
 
-size_t BackupImpl::copyFileToDisk(const String & file_name,
-                                  DiskPtr destination_disk, const String & destination_path, WriteMode write_mode) const
+size_t
+BackupImpl::copyFileToDisk(const String & file_name, DiskPtr destination_disk, const String & destination_path, WriteMode write_mode) const
 {
     return copyFileToDisk(getFileSizeAndChecksum(file_name), destination_disk, destination_path, write_mode);
 }
 
-size_t BackupImpl::copyFileToDisk(const SizeAndChecksum & size_and_checksum,
-                                  DiskPtr destination_disk, const String & destination_path, WriteMode write_mode) const
+size_t BackupImpl::copyFileToDisk(
+    const SizeAndChecksum & size_and_checksum, DiskPtr destination_disk, const String & destination_path, WriteMode write_mode) const
 {
     if (open_mode != OpenMode::READ)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Backup is not opened for reading");
@@ -923,13 +924,23 @@ void BackupImpl::writeFile(const BackupFileInfo & info, BackupEntryPtr entry)
 
     if (info.data_file_name.empty())
     {
-        LOG_TRACE(log, "Writing backup for file {} from {}: skipped, {}", info.data_file_name, src_file_desc, !info.size ? "empty" : "base backup has it");
+        LOG_TRACE(
+            log,
+            "Writing backup for file {} from {}: skipped, {}",
+            info.data_file_name,
+            src_file_desc,
+            !info.size ? "empty" : "base backup has it");
         return;
     }
 
     if (!coordination->startWritingFile(info.data_file_index))
     {
-        LOG_TRACE(log, "Writing backup for file {} from {}: skipped, data file #{} is already being written", info.data_file_name, src_file_desc, info.data_file_index);
+        LOG_TRACE(
+            log,
+            "Writing backup for file {} from {}: skipped, data file #{} is already being written",
+            info.data_file_name,
+            src_file_desc,
+            info.data_file_index);
         return;
     }
 
@@ -950,13 +961,25 @@ void BackupImpl::writeFile(const BackupFileInfo & info, BackupEntryPtr entry)
 
     if (use_archive)
     {
-        LOG_TRACE(log, "Writing backup for file {} from {}: data file #{}, adding to archive", info.data_file_name, src_file_desc, info.data_file_index);
+        LOG_TRACE(
+            log,
+            "Writing backup for file {} from {}: data file #{}, adding to archive",
+            info.data_file_name,
+            src_file_desc,
+            info.data_file_index);
         write_info_to_archive(info.data_file_name);
     }
     else if (src_disk && from_immutable_file)
     {
-        LOG_INFO(log, "Writing backup for file {} from {} (disk {}): data file #{}", info.data_file_name, src_file_desc, src_disk->getName(), info.data_file_index);
-        writer->copyFileFromDisk(info.data_file_name, src_disk, src_file_path, info.encrypted_by_disk, info.base_size, info.size - info.base_size);
+        LOG_INFO(
+            log,
+            "Writing backup for file {} from {} (disk {}): data file #{}",
+            info.data_file_name,
+            src_file_desc,
+            src_disk->getName(),
+            info.data_file_index);
+        writer->copyFileFromDisk(
+            info.data_file_name, src_disk, src_file_path, info.encrypted_by_disk, info.base_size, info.size - info.base_size);
     }
     else
     {
@@ -972,10 +995,8 @@ void BackupImpl::writeFile(const BackupFileInfo & info, BackupEntryPtr entry)
     }
     else
     {
-        copy_file_inside_backup = [&](const auto & data_file_copy)
-        {
-            writer->copyFile(data_file_copy, info.data_file_name, info.size - info.base_size);
-        };
+        copy_file_inside_backup
+            = [&](const auto & data_file_copy) { writer->copyFile(data_file_copy, info.data_file_name, info.size - info.base_size); };
     }
 
     std::ranges::for_each(info.data_file_copies, copy_file_inside_backup);
